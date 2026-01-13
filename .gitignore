@@ -1,0 +1,9 @@
+
+# Bỏ qua file mô hình (thường rất nặng)
+*.bin
+*.arpa
+# Bỏ qua file dữ liệu lớn (nếu muốn)
+*.txt
+# Bỏ qua file rác của Colab/Python
+__pycache__/
+.ipynb_checkpoints/
