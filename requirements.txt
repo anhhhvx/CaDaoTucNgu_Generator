@@ -1,0 +1,2 @@
+pyvi==0.1.1
+https://github.com/kpu/kenlm/archive/master.zip
