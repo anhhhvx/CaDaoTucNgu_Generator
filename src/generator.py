@@ -1,5 +1,6 @@
 import kenlm
 import os
+import random
 from pyvi import ViTokenizer
 
 class NgramGenerator:
@@ -41,7 +42,12 @@ class NgramGenerator:
                             if next_word not in self.vocab_map[context_tuple]:
                                 self.vocab_map[context_tuple].append(next_word)
 
-    def generate(self, seed_text, max_length=100):
+    def generate(self, seed_text, max_length=100, top_k=3):
+        """
+        Sinh ra 1 câu duy nhất nhưng có tính ngẫu nhiên nhờ top_k.
+        top_k=1: Luôn chọn từ tốt nhất (giống cũ).
+        top_k=3: Chọn ngẫu nhiên trong 3 từ tốt nhất (tạo sự đa dạng).
+        """
         # Tách từ cho seed text
         current_text = ViTokenizer.tokenize(seed_text).lower()
         words = current_text.split()
@@ -53,7 +59,7 @@ class NgramGenerator:
             
             # --- CHIẾN THUẬT BACKOFF ---
             search_len = min(len(words), self.n_order - 1)
-            
+            # Backoff tìm candidates
             for k in range(search_len, 0, -1):
                 context_tuple = tuple(words[-k:]) 
                 candidates = self.vocab_map.get(context_tuple)
@@ -64,27 +70,65 @@ class NgramGenerator:
                 # print(" -> Ngừng: Không tìm thấy từ tiếp theo.")
                 break
 
-            # --- DÙNG KENLM CHẤM ĐIỂM ---
-            best_word = ""
-            best_score = -9999
+            # --- SỬA ĐỔI CHÍNH Ở ĐÂY: Thêm tham số top_k và temperature ---
+    def generate_one(self, seed_text, max_length=100, top_k=3):
+        """
+        Sinh ra 1 câu duy nhất nhưng có tính ngẫu nhiên nhờ top_k.
+        top_k=1: Luôn chọn từ tốt nhất (giống cũ).
+        top_k=3: Chọn ngẫu nhiên trong 3 từ tốt nhất (tạo sự đa dạng).
+        """
+        current_text = ViTokenizer.tokenize(seed_text).lower()
+        words = current_text.split()
+        
+        for _ in range(max_length):
+            candidates = None
+            search_len = min(len(words), self.n_order - 1)
             
-            for word in candidates:
-                # Tạo câu giả định
+            # Backoff tìm candidates
+            for k in range(search_len, 0, -1):
+                context_tuple = tuple(words[-k:]) 
+                candidates = self.vocab_map.get(context_tuple)
+                if candidates: break
+            
+            if not candidates: break
+
+            # --- LOGIC MỚI: CHẤM ĐIỂM VÀ LẤY TOP K ---
+            scored_candidates = []
+            unique_candidates = list(set(candidates)) # Loại bỏ từ trùng lặp
+
+            for word in unique_candidates:
                 sentence = " ".join(words + [word])
                 score = self.model.score(sentence)
-                
-                if score > best_score:
-                    best_score = score
-                    best_word = word
+                scored_candidates.append((score, word))
             
-            # --- KIỂM TRA ĐIỀU KIỆN DỪNG ---
-            if best_word == "</s>":
-                # print(" -> Gặp tín hiệu kết thúc bài.")
-                break 
+            # Sắp xếp từ điểm cao xuống thấp
+            scored_candidates.sort(key=lambda x: x[0], reverse=True)
 
-            # Thêm từ tốt nhất vào danh sách
+            # Lấy Top K ứng viên tốt nhất (Ví dụ lấy 3 từ điểm cao nhất)
+            # Nếu danh sách ít hơn k thì lấy hết
+            actual_k = min(len(scored_candidates), top_k)
+            top_choices = scored_candidates[:actual_k]
+
+            # Chọn ngẫu nhiên 1 từ trong nhóm Top K này
+            best_word = random.choice(top_choices)[1]
+            
+            if best_word == "</s>": break 
             words.append(best_word)
 
-        # Ghép lại và xử lý hiển thị
-        final_text = " ".join(words).replace("_", " ")
-        return final_text
+        return " ".join(words).replace("_", " ")
+
+    # --- HÀM MỚI: SINH NHIỀU CÂU CÙNG LÚC ---
+    def generate_batch(self, seed_text, num_sentences=5, top_k=3):
+        """
+        Sinh ra danh sách nhiều câu khác nhau từ cùng 1 gợi ý.
+        """
+        results = set() # Dùng set để tự động loại bỏ câu trùng nhau
+        attempts = 0
+        max_attempts = num_sentences * 3 # Tránh vòng lặp vô tận nếu model quá ít dữ liệu
+        
+        while len(results) < num_sentences and attempts < max_attempts:
+            sentence = self.generate_one(seed_text, top_k=top_k)
+            results.add(sentence)
+            attempts += 1
+            
+        return list(results)
