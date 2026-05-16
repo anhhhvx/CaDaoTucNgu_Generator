@@ -1,0 +1,4 @@
+pyvi
+pandas
+tqdm
+kenlm
